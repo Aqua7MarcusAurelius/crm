@@ -7,8 +7,8 @@ import {
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../prisma/prisma.service';
-import { RegisterSchema, RegisterDto } from './dto/register.dto';
-import { LoginSchema, LoginDto } from './dto/login.dto';
+import { RegisterDto } from './dto/register.dto';
+import { LoginDto } from './dto/login.dto';
 
 @Injectable()
 export class AuthService {
@@ -18,26 +18,30 @@ export class AuthService {
   ) {}
 
   async register(dto: RegisterDto) {
-    const data = RegisterSchema.parse(dto);
+    const username = dto.username.trim().toLowerCase();
+    const firstName = dto.firstName.trim();
+    const lastName = dto.lastName.trim();
+    const phone = dto.phone.trim();
+    const telegram = dto.telegram?.trim() || null;
 
     const existing = await this.prisma.user.findUnique({
-      where: { username: data.username },
+      where: { username },
     });
 
     if (existing) {
       throw new ConflictException('Этот ник уже занят');
     }
 
-    const hashedPassword = await bcrypt.hash(data.password, 12);
+    const hashedPassword = await bcrypt.hash(dto.password, 12);
 
     const user = await this.prisma.user.create({
       data: {
-        firstName: data.firstName,
-        lastName: data.lastName,
-        username: data.username,
+        firstName,
+        lastName,
+        username,
         password: hashedPassword,
-        phone: data.phone,
-        telegram: data.telegram,
+        phone,
+        telegram,
       },
     });
 
@@ -48,13 +52,13 @@ export class AuthService {
   }
 
   async login(dto: LoginDto) {
-    const data = LoginSchema.parse(dto);
+    const login = dto.login.trim().toLowerCase();
 
     const user = await this.prisma.user.findFirst({
       where: {
         OR: [
-          { username: data.login },
-          { email: { email: data.login } },
+          { username: login },
+          { email: { email: login } },
         ],
       },
       include: {
@@ -81,7 +85,7 @@ export class AuthService {
       throw new ForbiddenException('Аккаунт заблокирован');
     }
 
-    const passwordValid = await bcrypt.compare(data.password, user.password);
+    const passwordValid = await bcrypt.compare(dto.password, user.password);
 
     if (!passwordValid) {
       throw new UnauthorizedException('Неверный логин или пароль');

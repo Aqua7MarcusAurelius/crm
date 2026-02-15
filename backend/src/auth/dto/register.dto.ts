@@ -8,7 +8,7 @@ export const RegisterSchema = z.object({
     'Ник: только латиница, цифры и _',
   ),
   password: z.string().min(8, 'Пароль минимум 8 символов'),
-  phone: z.string().min(7, 'Некорректный телефон'),
+  phone: z.string({ required_error: 'Телефон обязателен' }).min(7, 'Некорректный телефон'),
   telegram: z.string().optional(),
 });
 
