@@ -1,0 +1,8 @@
+node_modules/
+dist/
+.next/
+*.log
+.env
+backend/.env
+logs/*.pid
+logs/*.log

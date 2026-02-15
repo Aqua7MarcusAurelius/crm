@@ -1,0 +1,118 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─── Пользователи ───
+
+model User {
+  id        String     @id @default(uuid())
+  firstName String     @map("first_name")
+  lastName  String     @map("last_name")
+  username  String     @unique
+  password  String
+  phone     String
+  telegram  String?
+  isAdmin   Boolean    @default(false) @map("is_admin")
+  status    UserStatus @default(PENDING)
+
+  projectId  String?   @map("project_id")
+  project    Project?  @relation(fields: [projectId], references: [id])
+
+  positionId String?   @map("position_id")
+  position   Position? @relation(fields: [positionId], references: [id])
+
+  emailId String?         @unique @map("email_id")
+  email   CorporateEmail? @relation(fields: [emailId], references: [id])
+
+  permissions UserPermission[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("users")
+}
+
+enum UserStatus {
+  PENDING
+  ACTIVE
+  REJECTED
+  BLOCKED
+}
+
+// ─── Разрешения ───
+
+model Permission {
+  id       String @id @default(uuid())
+  code     String @unique
+  name     String
+  category String
+
+  users UserPermission[]
+
+  @@map("permissions")
+}
+
+model UserPermission {
+  userId       String @map("user_id")
+  user         User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  permissionId String     @map("permission_id")
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([userId, permissionId])
+  @@map("user_permissions")
+}
+
+// ─── Корпоративные email ───
+
+model CorporateEmail {
+  id     String      @id @default(uuid())
+  email  String      @unique
+  status EmailStatus @default(AVAILABLE)
+
+  user User?
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("corporate_emails")
+}
+
+enum EmailStatus {
+  AVAILABLE
+  ASSIGNED
+}
+
+// ─── Проекты ───
+
+model Project {
+  id   String @id @default(uuid())
+  name String @unique
+
+  positions Position[]
+  users     User[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("projects")
+}
+
+// ─── Должности ───
+
+model Position {
+  id   String @id @default(uuid())
+  name String
+
+  projectId String  @map("project_id")
+  project   Project @relation(fields: [projectId], references: [id])
+
+  users User[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@unique([name, projectId])
+  @@map("positions")
+}
