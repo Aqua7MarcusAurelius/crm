@@ -14,6 +14,7 @@ interface NavItem {
 const navItems: NavItem[] = [
   { href: '/', label: '🏠 Главная' },
   { href: '/users', label: '👥 Пользователи', adminOnly: true },
+  { href: '/clients', label: '📇 Клиенты', permission: 'clients.view' },
 ];
 
 export function Sidebar() {

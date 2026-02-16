@@ -29,6 +29,7 @@ model User {
   email   CorporateEmail? @relation(fields: [emailId], references: [id])
 
   permissions UserPermission[]
+  clients     Client[]
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -115,4 +116,43 @@ model Position {
 
   @@unique([name, projectId])
   @@map("positions")
+}
+
+// ─── Клиенты ───
+
+model Client {
+  id        String  @id @default(uuid())
+  status    String? @default("Новый")
+  firstName String  @map("first_name")
+  lastName  String  @map("last_name")
+  dob       DateTime? @db.Date
+  gender    String?
+  country   String?
+  city      String?
+  address   String?
+  email     String?
+  mobile    String? @map("mobile_number")
+
+  instagram String?
+  whatsapp  String?
+  zoom      String?
+
+  tgUsername          String? @map("tg_username")
+  tgUserId            String? @map("tg_user_id")
+  tgBio               String? @map("tg_bio")
+  tgLastVisitStatus   String? @map("tg_last_visit_status")
+  tgPremiumAccount    Boolean @default(false) @map("tg_premium_account")
+  tgGifts             String? @map("tg_gifts")
+  tgAccountTechStatus String? @map("tg_account_tech_status")
+
+  bio      String?
+  addInfo  String? @map("add_info")
+
+  createdBy String? @map("created_by")
+  creator   User?   @relation(fields: [createdBy], references: [id])
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("clients")
 }

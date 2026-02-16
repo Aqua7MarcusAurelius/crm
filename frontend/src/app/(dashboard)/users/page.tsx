@@ -44,6 +44,17 @@ interface User {
   createdAt: string;
 }
 
+interface Project {
+  id: string;
+  name: string;
+  positions: { id: string; name: string }[];
+}
+
+interface CorpEmail {
+  id: string;
+  email: string;
+}
+
 const statusConfig: Record<string, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' }> = {
   PENDING: { label: 'Заявка', variant: 'outline' },
   ACTIVE: { label: 'Активен', variant: 'default' },
@@ -68,6 +79,16 @@ export default function UsersPage() {
   const [sheetOpen, setSheetOpen] = useState(false);
   const [loading, setLoading] = useState(true);
 
+  // Справочники
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [availableEmails, setAvailableEmails] = useState<CorpEmail[]>([]);
+
+  // Выбранные значения в форме
+  const [selProjectId, setSelProjectId] = useState<string>('');
+  const [selPositionId, setSelPositionId] = useState<string>('');
+  const [selEmailId, setSelEmailId] = useState<string>('');
+  const [saving, setSaving] = useState(false);
+
   const fetchUsers = useCallback(async () => {
     if (!token) return;
     try {
@@ -87,6 +108,20 @@ export default function UsersPage() {
     fetchUsers();
   }, [fetchUsers]);
 
+  const fetchReferences = async () => {
+    if (!token) return;
+    try {
+      const [proj, emails] = await Promise.all([
+        api<Project[]>('/users/projects', { token }),
+        api<CorpEmail[]>('/users/emails/available', { token }),
+      ]);
+      setProjects(proj);
+      setAvailableEmails(emails);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
   const handleAction = async (userId: string, action: string) => {
     try {
       await api(`/users/${userId}/${action}`, { method: 'PATCH', token: token! });
@@ -100,12 +135,53 @@ export default function UsersPage() {
     }
   };
 
-  const openSheet = (user: User) => {
+  const openSheet = async (user: User) => {
     setSelectedUser(user);
+    setSelProjectId(user.project?.id || '');
+    setSelPositionId(user.position?.id || '');
+    setSelEmailId(user.email?.id || '');
     setSheetOpen(true);
+    await fetchReferences();
+  };
+
+  const handleSave = async () => {
+    if (!selectedUser || !token) return;
+    setSaving(true);
+    try {
+      const updated = await api<User>(`/users/${selectedUser.id}`, {
+        method: 'PATCH',
+        token,
+        body: {
+          projectId: selProjectId || null,
+          positionId: selPositionId || null,
+          emailId: selEmailId || null,
+        },
+      });
+      setSelectedUser(updated);
+      await fetchUsers();
+    } catch (err: any) {
+      alert(err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // Должности текущего проекта
+  const currentPositions = projects.find((p) => p.id === selProjectId)?.positions || [];
+
+  // При смене проекта сбрасываем должность
+  const handleProjectChange = (value: string) => {
+    setSelProjectId(value);
+    setSelPositionId('');
   };
 
   const pendingCount = users.filter((u) => u.status === 'PENDING').length;
+
+  // Проверяем изменились ли назначения
+  const hasChanges =
+    (selProjectId || '') !== (selectedUser?.project?.id || '') ||
+    (selPositionId || '') !== (selectedUser?.position?.id || '') ||
+    (selEmailId || '') !== (selectedUser?.email?.id || '');
 
   return (
     <div>
@@ -191,36 +267,21 @@ export default function UsersPage() {
                   <TableCell onClick={(e) => e.stopPropagation()}>
                     {user.status === 'PENDING' && (
                       <div className="flex gap-1">
-                        <Button
-                          size="sm"
-                          onClick={() => handleAction(user.id, 'approve')}
-                        >
+                        <Button size="sm" onClick={() => handleAction(user.id, 'approve')}>
                           Одобрить
                         </Button>
-                        <Button
-                          size="sm"
-                          variant="destructive"
-                          onClick={() => handleAction(user.id, 'reject')}
-                        >
+                        <Button size="sm" variant="destructive" onClick={() => handleAction(user.id, 'reject')}>
                           Отклонить
                         </Button>
                       </div>
                     )}
                     {user.status === 'ACTIVE' && (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => handleAction(user.id, 'block')}
-                      >
+                      <Button size="sm" variant="outline" onClick={() => handleAction(user.id, 'block')}>
                         Заблокировать
                       </Button>
                     )}
                     {(user.status === 'BLOCKED' || user.status === 'REJECTED') && (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => handleAction(user.id, 'activate')}
-                      >
+                      <Button size="sm" variant="outline" onClick={() => handleAction(user.id, 'activate')}>
                         Активировать
                       </Button>
                     )}
@@ -242,6 +303,7 @@ export default function UsersPage() {
 
           {selectedUser && (
             <div className="mt-6 space-y-6">
+              {/* Информация */}
               <div className="bg-gray-50 rounded-lg p-4 space-y-3">
                 <div className="flex justify-between items-center">
                   <span className="text-sm text-gray-500">Ник</span>
@@ -277,56 +339,103 @@ export default function UsersPage() {
                 </div>
               </div>
 
-              <div className="bg-gray-50 rounded-lg p-4 space-y-3">
-                <h3 className="text-sm font-semibold text-gray-700 mb-2">Назначения</h3>
-                <div className="flex justify-between items-center">
-                  <span className="text-sm text-gray-500">Корп. email</span>
-                  <span className="text-sm font-medium">{selectedUser.email?.email || '—'}</span>
+              {/* Назначения — выпадающие списки */}
+              <div className="bg-gray-50 rounded-lg p-4 space-y-4">
+                <h3 className="text-sm font-semibold text-gray-700">Назначения</h3>
+
+                <div className="space-y-1">
+                  <label className="text-sm text-gray-500">Проект</label>
+                  <Select value={selProjectId} onValueChange={handleProjectChange}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Не назначен" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {projects.map((p) => (
+                        <SelectItem key={p.id} value={p.id}>
+                          {p.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
-                <Separator />
-                <div className="flex justify-between items-center">
-                  <span className="text-sm text-gray-500">Проект</span>
-                  <span className="text-sm font-medium">{selectedUser.project?.name || '—'}</span>
+
+                <div className="space-y-1">
+                  <label className="text-sm text-gray-500">Должность</label>
+                  <Select
+                    value={selPositionId}
+                    onValueChange={setSelPositionId}
+                    disabled={!selProjectId}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder={selProjectId ? 'Не назначена' : 'Сначала выберите проект'} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {currentPositions.map((pos) => (
+                        <SelectItem key={pos.id} value={pos.id}>
+                          {pos.name}
+                        </SelectItem>
+                      ))}
+                      {currentPositions.length === 0 && (
+                        <div className="px-2 py-1.5 text-sm text-gray-500">
+                          Нет должностей для этого проекта
+                        </div>
+                      )}
+                    </SelectContent>
+                  </Select>
                 </div>
-                <Separator />
-                <div className="flex justify-between items-center">
-                  <span className="text-sm text-gray-500">Должность</span>
-                  <span className="text-sm font-medium">{selectedUser.position?.name || '—'}</span>
+
+                <div className="space-y-1">
+                  <label className="text-sm text-gray-500">Корп. email</label>
+                  <Select value={selEmailId} onValueChange={setSelEmailId}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Не назначен" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {selectedUser.email && (
+                        <SelectItem value={selectedUser.email.id}>
+                          {selectedUser.email.email} (текущий)
+                        </SelectItem>
+                      )}
+                      {availableEmails.map((e) => (
+                        <SelectItem key={e.id} value={e.id}>
+                          {e.email}
+                        </SelectItem>
+                      ))}
+                      {availableEmails.length === 0 && !selectedUser.email && (
+                        <div className="px-2 py-1.5 text-sm text-gray-500">
+                          Нет свободных email
+                        </div>
+                      )}
+                    </SelectContent>
+                  </Select>
                 </div>
+
+                {hasChanges && (
+                  <Button onClick={handleSave} disabled={saving} className="w-full">
+                    {saving ? 'Сохранение...' : 'Сохранить назначения'}
+                  </Button>
+                )}
               </div>
 
+              {/* Действия */}
               <div className="space-y-2 pt-2">
                 {selectedUser.status === 'PENDING' && (
                   <div className="flex gap-3">
-                    <Button
-                      className="flex-1"
-                      onClick={() => handleAction(selectedUser.id, 'approve')}
-                    >
+                    <Button className="flex-1" onClick={() => handleAction(selectedUser.id, 'approve')}>
                       Одобрить
                     </Button>
-                    <Button
-                      className="flex-1"
-                      variant="destructive"
-                      onClick={() => handleAction(selectedUser.id, 'reject')}
-                    >
+                    <Button className="flex-1" variant="destructive" onClick={() => handleAction(selectedUser.id, 'reject')}>
                       Отклонить
                     </Button>
                   </div>
                 )}
                 {selectedUser.status === 'ACTIVE' && (
-                  <Button
-                    variant="outline"
-                    className="w-full"
-                    onClick={() => handleAction(selectedUser.id, 'block')}
-                  >
+                  <Button variant="outline" className="w-full" onClick={() => handleAction(selectedUser.id, 'block')}>
                     Заблокировать
                   </Button>
                 )}
                 {(selectedUser.status === 'BLOCKED' || selectedUser.status === 'REJECTED') && (
-                  <Button
-                    className="w-full"
-                    onClick={() => handleAction(selectedUser.id, 'activate')}
-                  >
+                  <Button className="w-full" onClick={() => handleAction(selectedUser.id, 'activate')}>
                     Активировать
                   </Button>
                 )}
