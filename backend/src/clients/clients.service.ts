@@ -44,6 +44,53 @@ export class ClientsService {
     });
   }
 
+  async createMany(clients: any[], userId: string) {
+    const results = { created: 0, errors: [] as string[] };
+
+    for (let i = 0; i < clients.length; i++) {
+      try {
+        const row = clients[i];
+        if (!row.firstName || !row.lastName) {
+          results.errors.push(`Строка ${i + 1}: имя и фамилия обязательны`);
+          continue;
+        }
+        await this.prisma.client.create({
+          data: {
+            firstName: row.firstName,
+            lastName: row.lastName,
+            status: row.status || null,
+            dob: row.dob ? new Date(row.dob) : null,
+            gender: row.gender || null,
+            country: row.country || null,
+            city: row.city || null,
+            address: row.address || null,
+            email: row.email || null,
+            mobile: row.mobile || null,
+            instagram: row.instagram || null,
+            whatsapp: row.whatsapp || null,
+            zoom: row.zoom || null,
+            tgUsername: row.tgUsername || null,
+            tgUserId: row.tgUserId || null,
+            tgBio: row.tgBio || null,
+            tgLastVisitStatus: row.tgLastVisitStatus || null,
+            tgPremiumAccount:
+              row.tgPremiumAccount === 'true' || row.tgPremiumAccount === true,
+            tgGifts: row.tgGifts || null,
+            tgAccountTechStatus: row.tgAccountTechStatus || null,
+            bio: row.bio || null,
+            addInfo: row.addInfo || null,
+            createdBy: userId,
+          },
+        });
+        results.created++;
+      } catch (err: any) {
+        results.errors.push(`Строка ${i + 1}: ${err.message}`);
+      }
+    }
+
+    return results;
+  }
+
   async updateClient(id: string, data: any) {
     await this.getClient(id);
     return this.prisma.client.update({

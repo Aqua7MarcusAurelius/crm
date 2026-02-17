@@ -38,6 +38,12 @@ export class ClientsController {
     return this.clientsService.createClient(body, user.id);
   }
 
+  @Post('bulk')
+  @RequirePermissions('clients.create')
+  createMany(@Body() body: { clients: any[] }, @CurrentUser() user: any) {
+    return this.clientsService.createMany(body.clients, user.id);
+  }
+
   @Patch(':id')
   @RequirePermissions('clients.edit')
   updateClient(@Param('id') id: string, @Body() body: any) {

@@ -1,10 +1,11 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useAuthStore } from '@/lib/auth-store';
 import { api } from '@/lib/api';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
+import Papa from 'papaparse';
 import {
   Table,
   TableBody,
@@ -19,7 +20,12 @@ import {
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet';
-import { Separator } from '@/components/ui/separator';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 
 interface Client {
   id: string;
@@ -74,6 +80,15 @@ const emptyClient = {
   addInfo: '',
 };
 
+const CSV_HEADERS = [
+  'firstName', 'lastName', 'status', 'dob', 'gender',
+  'country', 'city', 'address', 'email', 'mobile',
+  'instagram', 'whatsapp', 'zoom',
+  'tgUsername', 'tgUserId', 'tgBio', 'tgLastVisitStatus',
+  'tgPremiumAccount', 'tgGifts', 'tgAccountTechStatus',
+  'bio', 'addInfo',
+];
+
 export default function ClientsPage() {
   const token = useAuthStore((s) => s.token);
   const [clients, setClients] = useState<Client[]>([]);
@@ -84,6 +99,14 @@ export default function ClientsPage() {
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
   const [form, setForm] = useState(emptyClient);
   const [saving, setSaving] = useState(false);
+
+  // Импорт
+  const [importOpen, setImportOpen] = useState(false);
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [importPreview, setImportPreview] = useState<any[]>([]);
+  const [importing, setImporting] = useState(false);
+  const [importResult, setImportResult] = useState<{ created: number; errors: string[] } | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
 
   const fetchClients = useCallback(async () => {
     if (!token) return;
@@ -145,7 +168,6 @@ export default function ClientsPage() {
     try {
       const body: any = { ...form };
       body.dob = body.dob || null;
-      // Пустые строки → null
       Object.keys(body).forEach((key) => {
         if (body[key] === '') body[key] = null;
       });
@@ -180,11 +202,81 @@ export default function ClientsPage() {
     setForm((prev) => ({ ...prev, [field]: value }));
   };
 
+  // ─── Импорт CSV ───
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImportFile(file);
+    setImportResult(null);
+
+    Papa.parse(file, {
+      header: true,
+      skipEmptyLines: true,
+      complete: (result) => {
+        setImportPreview(result.data.slice(0, 5));
+      },
+      error: () => {
+        alert('Ошибка чтения файла');
+      },
+    });
+  };
+
+  const handleImport = async () => {
+    if (!token || !importFile) return;
+    setImporting(true);
+    setImportResult(null);
+
+    Papa.parse(importFile, {
+      header: true,
+      skipEmptyLines: true,
+      complete: async (result) => {
+        try {
+          const res = await api<{ created: number; errors: string[] }>('/clients/bulk', {
+            method: 'POST',
+            token,
+            body: { clients: result.data },
+          });
+          setImportResult(res);
+          await fetchClients();
+        } catch (err: any) {
+          alert(err.message);
+        } finally {
+          setImporting(false);
+        }
+      },
+    });
+  };
+
+  const downloadTemplate = () => {
+    const csv = CSV_HEADERS.join(',') + '\nИван,Иванов,Новый,1990-01-15,М,Россия,Москва,,ivan@mail.ru,+79991234567,,,,,,,,,,,';
+    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'clients_template.csv';
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const closeImport = () => {
+    setImportOpen(false);
+    setImportFile(null);
+    setImportPreview([]);
+    setImportResult(null);
+    if (fileRef.current) fileRef.current.value = '';
+  };
+
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold">Клиенты</h1>
-        <Button onClick={openNew}>+ Добавить клиента</Button>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={() => setImportOpen(true)}>
+            📥 Пакетный импорт
+          </Button>
+          <Button onClick={openNew}>+ Добавить клиента</Button>
+        </div>
       </div>
 
       <div className="flex gap-3 mb-4">
@@ -249,6 +341,97 @@ export default function ClientsPage() {
         </Table>
       </div>
 
+      {/* Диалог импорта */}
+      <Dialog open={importOpen} onOpenChange={(open) => { if (!open) closeImport(); }}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Пакетный импорт клиентов</DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-4 mt-2">
+            <div>
+              <label className="text-sm text-gray-600 block mb-2">
+                Выберите CSV файл с данными клиентов
+              </label>
+              <input
+                ref={fileRef}
+                type="file"
+                accept=".csv"
+                onChange={handleFileSelect}
+                className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-medium file:bg-gray-100 file:text-gray-700 hover:file:bg-gray-200"
+              />
+            </div>
+
+            {importPreview.length > 0 && (
+              <div className="bg-gray-50 rounded-lg p-3">
+                <p className="text-sm font-medium mb-2">
+                  Предпросмотр (первые {importPreview.length} строк):
+                </p>
+                <div className="overflow-x-auto max-h-40">
+                  <table className="text-xs">
+                    <thead>
+                      <tr>
+                        {Object.keys(importPreview[0]).slice(0, 5).map((h) => (
+                          <th key={h} className="px-2 py-1 text-left font-medium text-gray-500">{h}</th>
+                        ))}
+                        <th className="px-2 py-1 text-gray-400">...</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {importPreview.map((row, i) => (
+                        <tr key={i}>
+                          {Object.values(row).slice(0, 5).map((val, j) => (
+                            <td key={j} className="px-2 py-1">{String(val || '—')}</td>
+                          ))}
+                          <td className="px-2 py-1 text-gray-400">...</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {importResult && (
+              <div className={`rounded-lg p-3 ${importResult.errors.length > 0 ? 'bg-yellow-50' : 'bg-green-50'}`}>
+                <p className="text-sm font-medium">
+                  ✅ Создано: {importResult.created}
+                  {importResult.errors.length > 0 && ` | ⚠️ Ошибки: ${importResult.errors.length}`}
+                </p>
+                {importResult.errors.length > 0 && (
+                  <ul className="text-xs text-red-600 mt-1 max-h-24 overflow-y-auto">
+                    {importResult.errors.map((e, i) => (
+                      <li key={i}>{e}</li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
+
+            <div className="flex items-center justify-between pt-2">
+              <button
+                onClick={downloadTemplate}
+                className="text-sm text-blue-600 hover:underline"
+              >
+                📄 Скачать CSV шаблон
+              </button>
+              <div className="flex gap-2">
+                <Button variant="outline" onClick={closeImport}>
+                  Закрыть
+                </Button>
+                <Button
+                  onClick={handleImport}
+                  disabled={!importFile || importing}
+                >
+                  {importing ? 'Импорт...' : 'Импортировать'}
+                </Button>
+              </div>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Боковая панель */}
       <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
         <SheetContent className="w-[520px] sm:max-w-[520px] overflow-y-auto">
           <SheetHeader>
@@ -258,7 +441,6 @@ export default function ClientsPage() {
           </SheetHeader>
 
           <div className="mt-6 space-y-6">
-            {/* Основное */}
             <div className="bg-gray-50 rounded-lg p-4 space-y-3">
               <h3 className="text-sm font-semibold text-gray-700">Основное</h3>
               <div className="grid grid-cols-2 gap-3">
@@ -287,7 +469,6 @@ export default function ClientsPage() {
               </div>
             </div>
 
-            {/* Локация */}
             <div className="bg-gray-50 rounded-lg p-4 space-y-3">
               <h3 className="text-sm font-semibold text-gray-700">Локация</h3>
               <div className="grid grid-cols-2 gap-3">
@@ -306,7 +487,6 @@ export default function ClientsPage() {
               </div>
             </div>
 
-            {/* Контакты */}
             <div className="bg-gray-50 rounded-lg p-4 space-y-3">
               <h3 className="text-sm font-semibold text-gray-700">Контакты</h3>
               <div className="grid grid-cols-2 gap-3">
@@ -335,7 +515,6 @@ export default function ClientsPage() {
               </div>
             </div>
 
-            {/* Telegram */}
             <div className="bg-gray-50 rounded-lg p-4 space-y-3">
               <h3 className="text-sm font-semibold text-gray-700">Telegram</h3>
               <div className="grid grid-cols-2 gap-3">
@@ -379,7 +558,6 @@ export default function ClientsPage() {
               </div>
             </div>
 
-            {/* Доп. информация */}
             <div className="bg-gray-50 rounded-lg p-4 space-y-3">
               <h3 className="text-sm font-semibold text-gray-700">Дополнительно</h3>
               <div>
@@ -400,17 +578,12 @@ export default function ClientsPage() {
               </div>
             </div>
 
-            {/* Кнопки */}
             <div className="space-y-2 pt-2">
               <Button onClick={handleSave} disabled={saving || !form.firstName || !form.lastName} className="w-full">
                 {saving ? 'Сохранение...' : isNew ? 'Создать клиента' : 'Сохранить'}
               </Button>
               {!isNew && selectedClient && (
-                <Button
-                  variant="destructive"
-                  className="w-full"
-                  onClick={() => handleDelete(selectedClient.id)}
-                >
+                <Button variant="destructive" className="w-full" onClick={() => handleDelete(selectedClient.id)}>
                   Удалить клиента
                 </Button>
               )}
