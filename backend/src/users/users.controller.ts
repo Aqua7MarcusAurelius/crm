@@ -7,10 +7,17 @@ import {
   Param,
   Query,
   UseGuards,
+  UsePipes,
 } from '@nestjs/common';
 import { UsersService } from './users.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { IsAdminGuard } from './is-admin.guard';
+import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import { ZodValidationPipe } from '../common/zod-validation.pipe';
+import { UpdateUserSchema } from './dto/update-user.dto';
+import type { UpdateUserDto } from './dto/update-user.dto';
+import { CreateProjectSchema, CreatePositionSchema, AddEmailsSchema } from './dto/references.dto';
+import type { CreateProjectDto, CreatePositionDto, AddEmailsDto } from './dto/references.dto';
 import { UserStatus } from '@prisma/client';
 
 @Controller('users')
@@ -52,8 +59,8 @@ export class UsersController {
   }
 
   @Patch(':id/block')
-  blockUser(@Param('id') id: string) {
-    return this.usersService.blockUser(id);
+  blockUser(@Param('id') id: string, @CurrentUser() user: any) {
+    return this.usersService.blockUser(id, user.id);
   }
 
   @Patch(':id/activate')
@@ -62,22 +69,30 @@ export class UsersController {
   }
 
   @Patch(':id')
-  updateUser(@Param('id') id: string, @Body() body: any) {
-    return this.usersService.updateUser(id, body);
+  @UsePipes(new ZodValidationPipe(UpdateUserSchema))
+  updateUser(
+    @Param('id') id: string,
+    @Body() body: UpdateUserDto,
+    @CurrentUser() user: any,
+  ) {
+    return this.usersService.updateUser(id, body, user.id);
   }
 
   @Post('projects')
-  createProject(@Body('name') name: string) {
-    return this.usersService.createProject(name);
+  @UsePipes(new ZodValidationPipe(CreateProjectSchema))
+  createProject(@Body() body: CreateProjectDto) {
+    return this.usersService.createProject(body.name);
   }
 
   @Post('positions')
-  createPosition(@Body() body: { name: string; projectId: string }) {
+  @UsePipes(new ZodValidationPipe(CreatePositionSchema))
+  createPosition(@Body() body: CreatePositionDto) {
     return this.usersService.createPosition(body.name, body.projectId);
   }
 
   @Post('emails')
-  addEmails(@Body('emails') emails: string[]) {
-    return this.usersService.addEmails(emails);
+  @UsePipes(new ZodValidationPipe(AddEmailsSchema))
+  addEmails(@Body() body: AddEmailsDto) {
+    return this.usersService.addEmails(body.emails);
   }
 }

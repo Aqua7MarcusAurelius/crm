@@ -8,12 +8,16 @@ import {
   Param,
   Query,
   UseGuards,
+  UsePipes,
 } from '@nestjs/common';
 import { ClientsService } from './clients.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../auth/guards/permissions.guard';
 import { RequirePermissions } from '../auth/decorators/permissions.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import { ZodValidationPipe } from '../common/zod-validation.pipe';
+import { CreateClientSchema, UpdateClientSchema } from './dto/client.dto';
+import type { CreateClientDto, UpdateClientDto } from './dto/client.dto';
 
 @Controller('clients')
 @UseGuards(JwtAuthGuard, PermissionsGuard)
@@ -34,7 +38,8 @@ export class ClientsController {
 
   @Post()
   @RequirePermissions('clients.create')
-  createClient(@Body() body: any, @CurrentUser() user: any) {
+  @UsePipes(new ZodValidationPipe(CreateClientSchema))
+  createClient(@Body() body: CreateClientDto, @CurrentUser() user: any) {
     return this.clientsService.createClient(body, user.id);
   }
 
@@ -46,7 +51,10 @@ export class ClientsController {
 
   @Patch(':id')
   @RequirePermissions('clients.edit')
-  updateClient(@Param('id') id: string, @Body() body: any) {
+  updateClient(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(UpdateClientSchema)) body: UpdateClientDto,
+  ) {
     return this.clientsService.updateClient(id, body);
   }
 

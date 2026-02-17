@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useAuthStore } from '@/lib/auth-store';
 import { api } from '@/lib/api';
+import { useDebounce } from '@/hooks/use-debounce';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -74,6 +75,7 @@ export default function UsersPage() {
   const token = useAuthStore((s) => s.token);
   const [users, setUsers] = useState<User[]>([]);
   const [search, setSearch] = useState('');
+  const debouncedSearch = useDebounce(search);
   const [statusFilter, setStatusFilter] = useState('ALL');
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -94,7 +96,7 @@ export default function UsersPage() {
     try {
       const params = new URLSearchParams();
       if (statusFilter !== 'ALL') params.set('status', statusFilter);
-      if (search) params.set('search', search);
+      if (debouncedSearch) params.set('search', debouncedSearch);
       const data = await api<User[]>(`/users?${params}`, { token });
       setUsers(data);
     } catch (err) {
@@ -102,7 +104,7 @@ export default function UsersPage() {
     } finally {
       setLoading(false);
     }
-  }, [token, statusFilter, search]);
+  }, [token, statusFilter, debouncedSearch]);
 
   useEffect(() => {
     fetchUsers();

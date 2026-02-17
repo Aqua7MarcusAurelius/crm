@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useAuthStore } from '@/lib/auth-store';
 import { api } from '@/lib/api';
+import { useDebounce } from '@/hooks/use-debounce';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import Papa from 'papaparse';
@@ -93,6 +94,7 @@ export default function ClientsPage() {
   const token = useAuthStore((s) => s.token);
   const [clients, setClients] = useState<Client[]>([]);
   const [search, setSearch] = useState('');
+  const debouncedSearch = useDebounce(search);
   const [loading, setLoading] = useState(true);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [isNew, setIsNew] = useState(false);
@@ -111,7 +113,7 @@ export default function ClientsPage() {
   const fetchClients = useCallback(async () => {
     if (!token) return;
     try {
-      const params = search ? `?search=${encodeURIComponent(search)}` : '';
+      const params = debouncedSearch ? `?search=${encodeURIComponent(debouncedSearch)}` : '';
       const data = await api<Client[]>(`/clients${params}`, { token });
       setClients(data);
     } catch (err) {
@@ -119,7 +121,7 @@ export default function ClientsPage() {
     } finally {
       setLoading(false);
     }
-  }, [token, search]);
+  }, [token, debouncedSearch]);
 
   useEffect(() => {
     fetchClients();

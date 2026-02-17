@@ -5,6 +5,24 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { UserStatus } from '@prisma/client';
+import type { UpdateUserDto } from './dto/update-user.dto';
+
+// Все поля кроме password — используем во всех запросах
+const userSelect = {
+  id: true,
+  firstName: true,
+  lastName: true,
+  username: true,
+  phone: true,
+  telegram: true,
+  isAdmin: true,
+  status: true,
+  projectId: true,
+  positionId: true,
+  emailId: true,
+  createdAt: true,
+  updatedAt: true,
+} as const;
 
 @Injectable()
 export class UsersService {
@@ -29,7 +47,8 @@ export class UsersService {
 
     return this.prisma.user.findMany({
       where,
-      include: {
+      select: {
+        ...userSelect,
         project: true,
         position: true,
         email: true,
@@ -41,7 +60,8 @@ export class UsersService {
   async getUser(userId: string) {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
-      include: {
+      select: {
+        ...userSelect,
         project: true,
         position: true,
         email: true,
@@ -61,6 +81,7 @@ export class UsersService {
     return this.prisma.user.update({
       where: { id: userId },
       data: { status: 'ACTIVE' },
+      select: userSelect,
     });
   }
 
@@ -72,14 +93,19 @@ export class UsersService {
     return this.prisma.user.update({
       where: { id: userId },
       data: { status: 'REJECTED' },
+      select: userSelect,
     });
   }
 
-  async blockUser(userId: string) {
+  async blockUser(userId: string, currentUserId: string) {
+    if (userId === currentUserId) {
+      throw new BadRequestException('Нельзя заблокировать самого себя');
+    }
     await this.getUser(userId);
     return this.prisma.user.update({
       where: { id: userId },
       data: { status: 'BLOCKED' },
+      select: userSelect,
     });
   }
 
@@ -91,55 +117,69 @@ export class UsersService {
     return this.prisma.user.update({
       where: { id: userId },
       data: { status: 'ACTIVE' },
+      select: userSelect,
     });
   }
 
-  async updateUser(userId: string, data: {
-    projectId?: string | null;
-    positionId?: string | null;
-    emailId?: string | null;
-    isAdmin?: boolean;
-  }) {
+  async updateUser(userId: string, data: UpdateUserDto, currentUserId: string) {
     await this.getUser(userId);
 
-    if (data.emailId) {
-      const corpEmail = await this.prisma.corporateEmail.findUnique({
-        where: { id: data.emailId },
-      });
-      if (!corpEmail || corpEmail.status !== 'AVAILABLE') {
-        throw new BadRequestException('Email недоступен');
-      }
-
-      // Освобождаем старый email если был
-      const currentUser = await this.prisma.user.findUnique({
-        where: { id: userId },
-      });
-      if (currentUser?.emailId) {
-        await this.prisma.corporateEmail.update({
-          where: { id: currentUser.emailId },
-          data: { status: 'AVAILABLE' },
-        });
-      }
-
-      await this.prisma.corporateEmail.update({
-        where: { id: data.emailId },
-        data: { status: 'ASSIGNED' },
-      });
+    // Нельзя снять админку с самого себя
+    if (userId === currentUserId && data.isAdmin === false) {
+      throw new BadRequestException('Нельзя снять права администратора с самого себя');
     }
 
-    return this.prisma.user.update({
-      where: { id: userId },
-      data: {
-        projectId: data.projectId,
-        positionId: data.positionId,
-        emailId: data.emailId,
-        isAdmin: data.isAdmin,
-      },
-      include: {
-        project: true,
-        position: true,
-        email: true,
-      },
+    // Транзакция: email назначение/освобождение + обновление юзера
+    return this.prisma.$transaction(async (tx) => {
+      // Получаем текущего юзера внутри транзакции
+      const currentUser = await tx.user.findUnique({
+        where: { id: userId },
+        select: { emailId: true },
+      });
+
+      // Если email меняется
+      const emailChanging = data.emailId !== undefined &&
+        data.emailId !== currentUser?.emailId;
+
+      if (emailChanging) {
+        // Освобождаем старый email
+        if (currentUser?.emailId) {
+          await tx.corporateEmail.update({
+            where: { id: currentUser.emailId },
+            data: { status: 'AVAILABLE' },
+          });
+        }
+
+        // Назначаем новый email (если не null)
+        if (data.emailId) {
+          const corpEmail = await tx.corporateEmail.findUnique({
+            where: { id: data.emailId },
+          });
+          if (!corpEmail || corpEmail.status !== 'AVAILABLE') {
+            throw new BadRequestException('Email недоступен');
+          }
+          await tx.corporateEmail.update({
+            where: { id: data.emailId },
+            data: { status: 'ASSIGNED' },
+          });
+        }
+      }
+
+      return tx.user.update({
+        where: { id: userId },
+        data: {
+          projectId: data.projectId,
+          positionId: data.positionId,
+          emailId: data.emailId,
+          isAdmin: data.isAdmin,
+        },
+        select: {
+          ...userSelect,
+          project: true,
+          position: true,
+          email: true,
+        },
+      });
     });
   }
 
